@@ -1,0 +1,152 @@
+import torch
+import torch.nn as nn
+from typing import Tuple
+
+from .decoder import ConformerDecoder
+from .encoder import ConformerEncoder
+
+class ConvSubSampling(nn.Module):
+    """
+    Convolutional Subsampling Module
+
+    Args:
+        in_channels (int): Number of input channels
+        out_channels (int): Number of output channels
+
+    Inputs:
+        inputs (torch.Tensor): Input tensor with shape (batch_size, channels, seq_len, input_dim)
+        input_lengths (torch.Tensor): Length of input tensor with shape (batch_size)
+
+    Returns:
+        outputs (torch.Tensor): Output tensor with shape (batch_size, subsampled_lengths, channels * sumsampled_dim)
+        output_lengths (torch.Tensor): Length of output tensor with shape (batch_size)
+    """
+    def __init__(self, in_channels: int, out_channels: int) -> None:
+        super(ConvSubSampling, self).__init__()
+        self.sequential = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
+            nn.BatchNorm2d(out_channels),
+            nn.GELU(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
+            nn.BatchNorm2d(out_channels),
+            nn.GELU(),
+        )
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, inputs: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        outputs = self.sequential(inputs)
+        batch_size, channels, subsampled_lengths, sumsampled_dim = outputs.size()
+
+        outputs = outputs.permute(0, 2, 1, 3)
+        outputs = outputs.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)
+        output_lengths = input_lengths // 4 - 1
+
+        return outputs, output_lengths
+
+class RoPEConformer(nn.Module):
+    """
+    Conformer with Rotary Positional Encoding
+    
+    Args:
+        input_dims (int): Dimension of input vector
+        hidden_dims (int): Dimension of hidden vector
+        dropout (float): Dropout rate
+        ff_expansion_factor (int): Expansion factor of feed forward module
+        ff_dropout (float): Dropout rate of feed forward module
+        attn_num_heads (int): Number of attention heads
+        mhsa_dropout (float): Dropout rate of multi-head self attention module
+        kernel_size (int): Kernel size of convolution module
+        conv_dropout (float): Dropout rate of convolution module
+        num_layers (int): Number of conformer blocks
+        num_classes (int): Number of classes
+    
+    Inputs: 
+        inputs (torch.Tensor): Input tensor with shape (batch_size, seq_len, input_dims)
+        input_lengths (torch.Tensor): Length of input tensor with shape (batch_size)
+
+    Returns:
+        torch.Tensor: Log probability of each class with shape (batch_size, num_classes)
+        """
+    def __init__(self, 
+                 input_dims: int = 128, 
+                 hidden_dims: int = 128, 
+                 enc_hidden_dims: int = 128,
+                 dropout: float = 0.1,
+                 ff_expansion_factor: int = 4, 
+                 ff_dropout: float = 0.1,
+                 attn_num_heads: int = 8,
+                 mhsa_dropout: float = 0.1,
+                 kernel_size: int = 3,
+                 conv_dropout: float = 0.1,
+                 enc_num_layers: int = 8,
+                 dec_hidden_dims: int = 320,
+                 dec_num_layers: int = 1,
+                 num_classes: int = 29) -> None:
+        super(RoPEConformer, self).__init__()
+        self.conv_subsampling = ConvSubSampling(1, hidden_dims)
+        self.linear = nn.Linear(hidden_dims * (((input_dims - 1) // 2 - 1) // 2), enc_hidden_dims)
+        self.dropout = nn.Dropout(dropout)
+
+        self.encoder_layer = nn.ModuleList([
+                ConformerEncoder(enc_hidden_dims, 
+                               ff_expansion_factor, 
+                               ff_dropout, 
+                               attn_num_heads, 
+                               mhsa_dropout, 
+                               kernel_size, 
+                               conv_dropout)
+                for _ in range(enc_num_layers)
+            ])
+        self.decoder_layer = ConformerDecoder(enc_hidden_dims, dec_hidden_dims, dec_num_layers)
+        self.fully_connected = nn.Linear(dec_hidden_dims, num_classes)
+        self.log_softmax = nn.LogSoftmax(dim=-1)
+        
+    def forward(self, x: torch.Tensor, input_lengths: torch.Tensor) -> torch.Tensor:
+        x, output_lengths = self.conv_subsampling(x, input_lengths)
+        x = self.linear(x)
+        x = self.dropout(x)
+
+        for layer in self.encoder_layer:
+            x = layer(x)
+        x = self.decoder_layer(x)
+        output = self.fully_connected(x)
+        output = self.log_softmax(output)
+        return x, output_lengths
+
+batch_size, sequence_length, dim = 32, 2941, 128
+
+
+# criterion = nn.CTCLoss().to(device)
+
+inputs = torch.rand(32, 1, sequence_length, dim)
+input_lengths = torch.LongTensor([32, 12345, 12300, 12000])
+params = {"input_dims": 128,
+    "hidden_dims": 128,
+    "enc_hidden_dims": 128,
+    "dropout": 0.1,
+    "ff_expansion_factor": 8,
+    "ff_dropout": 0.1, 
+    "attn_num_heads": 4, 
+    "mhsa_dropout": 0.1, 
+    "kernel_size": 3, 
+    "conv_dropout": 0.1, 
+    "enc_num_layers": 12,
+    "dec_hidden_dims": 256,
+    "dec_num_layers": 1,
+    "num_classes": 29
+}
+import functools
+import operator
+from torch import nn
+model = RoPEConformer(**params)
+def get_n_params(model: nn.Module) -> int:
+    return sum((functools.reduce(operator.mul, p.size()) for p in model.parameters()))
+print(get_n_params(model))
+print(model(inputs, input_lengths))

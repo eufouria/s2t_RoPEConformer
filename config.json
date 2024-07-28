@@ -1,0 +1,42 @@
+{
+    "dataset": {
+        "librispeech_path": "data/",
+        "train_subsets": ["train-clean-100", "train-clean-360", "train-other-500"],
+        "test_subsets": ["test-clean", "test-other"],
+        "valid_subsets": ["dev-clean", "dev-other"]
+    },
+    "audio": {
+        "sample_rate": 16000,
+        "n_fft": 1024,
+        "win_length": 320,
+        "hop_length": 160,
+        "n_mels": 128,
+        "n_mfcc": 128
+    },
+    "acoustic_model": {
+        "input_dims": 128,
+        "hidden_dims": 128,
+        "enc_hidden_dims": 128,
+        "dropout": 0.1,
+        "ff_expansion_factor": 8,
+        "ff_dropout": 0.1,
+        "attn_num_heads": 4,
+        "mhsa_dropout": 0.1,
+        "kernel_size": 3,
+        "conv_dropout": 0.1,
+        "enc_num_layers": 16,
+        "dec_hidden_dims": 384,
+        "dec_num_layers": 1,
+        "num_classes": 29
+},
+    "training": {
+        "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}.pth",
+        "batch_size": 32,
+        "num_workers": 4,
+        "learning_rate": 0.0002,
+        "max_lr": 0.0008,
+        "epochs": 50,
+        "anneal_strategy": "linear"
+    },
+    "seed": 42
+}
