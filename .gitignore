@@ -1,0 +1,7 @@
+## dataset ignore
+data/
+venv/
+*.pt
+__pycache__
+result/
+.DS_Store
