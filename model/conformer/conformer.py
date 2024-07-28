@@ -119,34 +119,3 @@ class RoPEConformer(nn.Module):
         output = self.fully_connected(x)
         output = self.log_softmax(output)
         return x, output_lengths
-
-batch_size, sequence_length, dim = 32, 2941, 128
-
-
-# criterion = nn.CTCLoss().to(device)
-
-inputs = torch.rand(32, 1, sequence_length, dim)
-input_lengths = torch.LongTensor([32, 12345, 12300, 12000])
-params = {"input_dims": 128,
-    "hidden_dims": 128,
-    "enc_hidden_dims": 128,
-    "dropout": 0.1,
-    "ff_expansion_factor": 8,
-    "ff_dropout": 0.1, 
-    "attn_num_heads": 4, 
-    "mhsa_dropout": 0.1, 
-    "kernel_size": 3, 
-    "conv_dropout": 0.1, 
-    "enc_num_layers": 12,
-    "dec_hidden_dims": 256,
-    "dec_num_layers": 1,
-    "num_classes": 29
-}
-import functools
-import operator
-from torch import nn
-model = RoPEConformer(**params)
-def get_n_params(model: nn.Module) -> int:
-    return sum((functools.reduce(operator.mul, p.size()) for p in model.parameters()))
-print(get_n_params(model))
-print(model(inputs, input_lengths))
