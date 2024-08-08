@@ -1,7 +1,9 @@
 ## dataset ignore
 data/
-venv/
+checkpoints/
+venv/\
 *.pt
 __pycache__
 result/
-.DS_Store
+.DS_Stor
+training_logs*

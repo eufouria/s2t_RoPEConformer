@@ -118,4 +118,4 @@ class RoPEConformer(nn.Module):
         x = self.decoder_layer(x)
         output = self.fully_connected(x)
         output = self.log_softmax(output)
-        return x, output_lengths
+        return output, output_lengths
