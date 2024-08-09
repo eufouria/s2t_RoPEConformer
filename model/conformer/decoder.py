@@ -23,7 +23,18 @@ class ConformerDecoder(nn.Module):
         self.lstm = nn.LSTM(input_dims, hidden_dims, num_layers, batch_first=True, bidirectional=False)
         self.gelu = nn.GELU()
         self.dropout = nn.Dropout(dropout)
-        
+        # Apply Kaiming initialization to LSTM weights
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for name, param in self.lstm.named_parameters():
+            if 'weight_ih' in name:
+                nn.init.kaiming_uniform_(param.data, nonlinearity='relu')
+            elif 'weight_hh' in name:
+                nn.init.kaiming_uniform_(param.data, nonlinearity='relu')
+            elif 'bias' in name:
+                param.data.fill_(0)
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x, _ = self.lstm(x)

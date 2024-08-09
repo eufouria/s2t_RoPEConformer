@@ -73,6 +73,7 @@ class RoPEConformer(nn.Module):
 
     Returns:
         torch.Tensor: Log probability of each class with shape (batch_size, num_classes)
+        torch.Tensor: The length of input
         """
     def __init__(self, 
                  input_dims: int = 128, 
@@ -108,7 +109,7 @@ class RoPEConformer(nn.Module):
         self.fully_connected = nn.Linear(dec_hidden_dims, num_classes)
         self.log_softmax = nn.LogSoftmax(dim=-1)
         
-    def forward(self, x: torch.Tensor, input_lengths: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x, output_lengths = self.conv_subsampling(x, input_lengths)
         x = self.linear(x)
         x = self.dropout(x)
