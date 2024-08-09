@@ -1,7 +1,7 @@
 {
     "dataset": {
         "librispeech_path": "data/",
-        "train_subsets": ["train-clean-100", "train-clean-360", "train-other-500"],
+        "train_subsets": ["train-clean-100"],
         "test_subsets": ["test-clean", "test-other"],
         "valid_subsets": ["dev-clean", "dev-other"]
     },
@@ -22,7 +22,7 @@
         "ff_dropout": 0.1,
         "attn_num_heads": 4,
         "mhsa_dropout": 0.1,
-        "kernel_size": 31,
+        "kernel_size": 7,
         "conv_dropout": 0.1,
         "enc_num_layers": 12,
         "dec_hidden_dims": 256,
@@ -31,12 +31,12 @@
 },
     "training": {
         "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}.pth",
-        "batch_size": 24,
+        "batch_size": 32,
         "num_workers": 4,
         "learning_rate": 0.0002,
         "max_lr": 0.0008,
         "epochs": 50,
         "anneal_strategy": "linear"
     },
-    "seed": 137
+    "seed": 1234
 }
