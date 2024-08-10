@@ -1,1 +1,1 @@
-from .conformer import RoPEConformer
+from .conformer import RoPEConformer, ConvSubSampling

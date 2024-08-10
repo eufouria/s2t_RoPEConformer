@@ -112,12 +112,12 @@ class RoPEMultiHeadSelfAttentionModule(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x) -> torch.Tensor:
-        _, seq_len, _ = x.shape
-        mask = torch.full(
-            (seq_len, seq_len), float("-inf")
-        ).to(x.device)
-        mask = torch.triu(mask, diagonal=1)
+        # _, seq_len, _ = x.shape
+        # mask = torch.full(
+        #     (seq_len, seq_len), float("-inf")
+        # ).to(x.device)
+        # mask = torch.triu(mask, diagonal=1)
         x = self.layer_norm(x)
-        x = self.mhsa(x, mask)
+        x = self.mhsa(x)
         x = self.dropout(x)
         return x

@@ -34,18 +34,32 @@ audio_config = config.get('audio')
 
 data_loader = MyDataLoader(audio_config)
 
-# Load datasets
+# Load train datasets
 #==========================================***===========================================
 train_dataset = data_loader.load_librispeech_datasets(dataset_config['librispeech_path'], 
                                                       dataset_config['train_subsets'])
 
-# Get DataLoader
+# Get Train DataLoader
 #==========================================***===========================================
 train_loader = data_loader.get_dataloader(train_dataset, 
                                           batch_size=training_config['batch_size'], 
                                           shuffle=True, 
                                           num_workers=training_config['num_workers'])
-logger.info(f"DataLoader Size: {len(train_loader)}")
+logger.info(f"Train DataLoader Size: {len(train_loader)}")
+
+# Load validation datasets
+#==========================================***===========================================
+valid_dataset = data_loader.load_librispeech_datasets(dataset_config['librispeech_path'], 
+                                                      dataset_config['valid_subsets'])
+
+# Get Validation DataLoader
+#==========================================***===========================================
+valid_loader = data_loader.get_dataloader(valid_dataset, 
+                                          batch_size=training_config['batch_size'], 
+                                          shuffle=False, 
+                                          num_workers=training_config['num_workers'])
+logger.info(f"Validation DataLoader Size: {len(valid_loader)}")
+
 
 # Model, Loss, and Optimizer
 #==========================================***===========================================
@@ -62,23 +76,38 @@ logger.info(f"Total params: {get_n_params(model)}")
 
 # Optimizer
 #==========================================***===========================================
-optimizer = torch.optim.AdamW(model.parameters(), lr=training_config['learning_rate'])
+optimizer = torch.optim.AdamW(model.parameters(), lr=training_config['lr'], amsgrad=True)
 
 # Scheduler
 #==========================================***===========================================
 scheduler = torch.optim.lr_scheduler.OneCycleLR(
     optimizer, 
-    max_lr=training_config['learning_rate'],                # Maximum learning rate
+    max_lr=training_config['max_lr'],                # Maximum learning rate
     steps_per_epoch=len(train_loader),                      # Number of steps (batches) per epoch
     epochs=training_config['epochs'],                       # Total number of epochs
-    pct_start=0.1,                                          # Percentage of the cycle spent increasing learning rate (warmup phase)
     anneal_strategy=training_config['anneal_strategy'],     # Learning rate annealing strategy ('cos' or 'linear')
-    final_div_factor=1e4                                    # Factor by which to divide the max_lr at the end of the cycle
 )
 
 # Loss function
 #==========================================***===========================================
 criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(device) # blank=0 is the index for unknown characters
+
+def validate(model, dataloader, criterion, device):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for spectrograms, labels, input_lengths, label_lengths in dataloader:
+            spectrograms, labels, input_lengths, label_lengths = (
+                spectrograms.to(device),
+                labels.to(device),
+                input_lengths.to(device),
+                label_lengths.to(device)
+            )
+            output, output_lengths = model(spectrograms, input_lengths)
+            output = nn.functional.log_softmax(output, dim=2)
+            loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
+            total_loss += loss.item()
+    return total_loss / len(dataloader)
 
 
 # training loop   
@@ -87,20 +116,24 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
     model.train()
     total_loss = 0
     batch_loss = []
+
     for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
-        if idx < 10 or (idx % 100 == 0 and idx < 1000) or (idx%500==0):
-            logger.info(f'  ||== Batch {idx}, Time: {datetime.datetime.now()}')
+        if idx % 100 == 0 and idx > 0:
+            current_lr = scheduler.get_last_lr()[0]  # Assuming single learning rate
+            logger.info(f'  ||  Batch {idx}, Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, Avg. Loss: {total_loss/(idx+1)}, LR: {current_lr}')
+        
+        optimizer.zero_grad()
         spectrograms, labels, input_lengths, label_lengths = (
             spectrograms.to(device),
             labels.to(device),
             input_lengths.to(device),
             label_lengths.to(device)
         )
-        optimizer.zero_grad()
-        output = model(spectrograms, input_lengths)
+
         output, output_lengths = model(spectrograms, input_lengths)
+        output = nn.functional.log_softmax(output, dim=2)
         loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
-        logger.info('Loss: {}'.format(loss))
+
         loss.backward()
         optimizer.step()
         scheduler.step()
@@ -110,19 +143,53 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
 
 # Train model
 #==========================================***===========================================
+# Early Stopping Parameters
+patience = 5
+best_val_loss = float('inf')
+epochs_no_improve = 0
+early_stop = False
+
 n_epochs = training_config['epochs']
 batch_losses = []
 for epoch in range(n_epochs):
+    if early_stop:
+        logger.info(f"Early stopping at epoch {epoch}")
+        break
+    
+    logger.info(f'  Epoch {epoch}')
     start = datetime.datetime.now()
+    
+    # Train for one epoch
     loss, batch_loss = train(model, train_loader, criterion, optimizer, device, scheduler)
     batch_losses.append(batch_loss)
-    logger.info(f'Epoch {epoch}, avg. Loss: {round(loss, 8)}, Time Elapsed: {datetime.datetime.now()-start}')
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'loss': loss,
-        'batch_loss':batch_loss
-    }
-    torch.save(checkpoint, training_config["checkpoint_path"].format(epoch))
+    
+    # Validate after each epoch
+    val_loss = validate(model, valid_loader, criterion, device)
+    logger.info(f'  Epoch {epoch}, avg. Train Loss: {round(loss, 8)}, avg. Val Loss: {round(val_loss, 8)}, Time Elapsed: {datetime.datetime.now()-start}')
+    logger.info(f'==========================================***===========================================')
+
+    # Check if validation loss improved
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_no_improve = 0
+        # Save the best model
+        torch.save(model.state_dict(), training_config["checkpoint_path"].format("best"))
+    else:
+        epochs_no_improve += 1
+    
+    # Early stopping
+    if epochs_no_improve >= patience:
+        early_stop = True
+
+    # Save checkpoint every 5 epochs
+    if epoch % 5 == 0:
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'loss': loss,
+            'batch_loss': batch_loss,
+            'val_loss': val_loss
+        }
+        torch.save(checkpoint, training_config["checkpoint_path"].format(epoch))

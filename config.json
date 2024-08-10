@@ -7,36 +7,34 @@
     },
     "audio": {
         "sample_rate": 16000,
-        "n_fft": 1024,
         "win_length": 320,
         "hop_length": 160,
-        "n_mels": 128,
-        "n_mfcc": 128
+        "n_mels": 80
     },
     "acoustic_model": {
-        "input_dims": 128,
+        "input_dims": 80,
         "hidden_dims": 128,
-        "enc_hidden_dims": 192,
+        "enc_hidden_dims": 128,
         "dropout": 0.1,
         "ff_expansion_factor": 4,
-        "ff_dropout": 0.1,
+        "ff_dropout": 0.2,
         "attn_num_heads": 4,
         "mhsa_dropout": 0.1,
-        "kernel_size": 7,
+        "kernel_size": 31,
         "conv_dropout": 0.1,
-        "enc_num_layers": 12,
-        "dec_hidden_dims": 256,
-        "dec_num_layers": 1,
+        "enc_num_layers": 16,
+        "dec_hidden_dims": 320,
+        "dec_num_layers": 2,
         "num_classes": 29
 },
     "training": {
-        "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}.pth",
+        "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}_dev.pth",
         "batch_size": 32,
         "num_workers": 4,
-        "learning_rate": 0.0002,
-        "max_lr": 0.0008,
-        "epochs": 50,
-        "anneal_strategy": "linear"
+        "lr": 0.005,
+        "max_lr": 0.01,
+        "epochs": 200,
+        "anneal_strategy": "cos"
     },
-    "seed": 1234
+    "seed": 13
 }

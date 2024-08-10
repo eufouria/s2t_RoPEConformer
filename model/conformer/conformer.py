@@ -21,14 +21,11 @@ class ConvSubSampling(nn.Module):
         outputs (torch.Tensor): Output tensor with shape (batch_size, subsampled_lengths, channels * sumsampled_dim)
         output_lengths (torch.Tensor): Length of output tensor with shape (batch_size)
     """
-    def __init__(self, in_channels: int, out_channels: int) -> None:
+    def __init__(self, in_channels: int, out_channels: int, input_dims: int = 128) -> None:
         super(ConvSubSampling, self).__init__()
         self.sequential = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
-            nn.BatchNorm2d(out_channels),
-            nn.GELU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
-            nn.BatchNorm2d(out_channels),
+            nn.LayerNorm(input_dims),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
         )
         self._initialize_weights()
@@ -41,14 +38,14 @@ class ConvSubSampling(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, inputs: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        outputs = self.sequential(inputs)
-        batch_size, channels, subsampled_lengths, sumsampled_dim = outputs.size()
+        output = self.sequential(inputs)
+        batch_size, channels, subsampled_lengths, sumsampled_dim = output.size()
+        
+        output = output.permute(0, 2, 1, 3)
+        output = output.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)
+        output_lengths = input_lengths // 2
 
-        outputs = outputs.permute(0, 2, 1, 3)
-        outputs = outputs.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)
-        output_lengths = input_lengths // 4 - 1
-
-        return outputs, output_lengths
+        return output, output_lengths
 
 class RoPEConformer(nn.Module):
     """
@@ -91,8 +88,8 @@ class RoPEConformer(nn.Module):
                  dec_num_layers: int = 1,
                  num_classes: int = 29) -> None:
         super(RoPEConformer, self).__init__()
-        self.conv_subsampling = ConvSubSampling(1, hidden_dims)
-        self.linear = nn.Linear(hidden_dims * (((input_dims - 1) // 2 - 1) // 2), enc_hidden_dims)
+        self.conv_subsampling = ConvSubSampling(1, hidden_dims, input_dims)
+        self.linear = nn.Linear(hidden_dims * input_dims//4, enc_hidden_dims)
         self.dropout = nn.Dropout(dropout)
 
         self.encoder_layer = nn.ModuleList([
@@ -106,8 +103,12 @@ class RoPEConformer(nn.Module):
                 for _ in range(enc_num_layers)
             ])
         self.decoder_layer = ConformerDecoder(enc_hidden_dims, dec_hidden_dims, dec_num_layers)
-        self.fully_connected = nn.Linear(dec_hidden_dims, num_classes)
-        self.log_softmax = nn.LogSoftmax(dim=-1)
+        self.fully_connected = nn.Sequential(
+            nn.Linear(dec_hidden_dims, dec_hidden_dims), 
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dec_hidden_dims, num_classes)
+        )
         
     def forward(self, x: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x, output_lengths = self.conv_subsampling(x, input_lengths)
@@ -118,5 +119,4 @@ class RoPEConformer(nn.Module):
             x = layer(x)
         x = self.decoder_layer(x)
         output = self.fully_connected(x)
-        output = self.log_softmax(output)
         return output, output_lengths
