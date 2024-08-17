@@ -25,16 +25,20 @@ class ConvSubSampling(nn.Module):
         super(ConvSubSampling, self).__init__()
         self.sequential = nn.Sequential(
             nn.LayerNorm(input_dims),
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
-            nn.GELU(),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
         )
-        # Initialize the weights using Xavier initialization
+        
+        # Initialize the weights
         self._initialize_weights()
 
     def _initialize_weights(self) -> None:
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
@@ -44,7 +48,7 @@ class ConvSubSampling(nn.Module):
         
         output = output.permute(0, 2, 1, 3)
         output = output.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)
-        output_lengths = input_lengths // 2
+        output_lengths = input_lengths // 4
 
         return output, output_lengths
 
