@@ -28,12 +28,13 @@ class ConvSubSampling(nn.Module):
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
             nn.GELU(),
         )
+        # Initialize the weights using Xavier initialization
         self._initialize_weights()
 
     def _initialize_weights(self) -> None:
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
@@ -84,12 +85,10 @@ class RoPEConformer(nn.Module):
                  kernel_size: int = 3,
                  conv_dropout: float = 0.1,
                  enc_num_layers: int = 8,
-                 dec_hidden_dims: int = 320,
-                 dec_num_layers: int = 1,
                  num_classes: int = 29) -> None:
         super(RoPEConformer, self).__init__()
         self.conv_subsampling = ConvSubSampling(1, hidden_dims, input_dims)
-        self.linear = nn.Linear(hidden_dims * input_dims//4, enc_hidden_dims)
+        self.linear = nn.Linear(hidden_dims * input_dims//2, enc_hidden_dims)
         self.dropout = nn.Dropout(dropout)
 
         self.encoder_layer = nn.ModuleList([
@@ -102,13 +101,8 @@ class RoPEConformer(nn.Module):
                                conv_dropout)
                 for _ in range(enc_num_layers)
             ])
-        self.decoder_layer = ConformerDecoder(enc_hidden_dims, dec_hidden_dims, dec_num_layers)
-        self.fully_connected = nn.Sequential(
-            nn.Linear(dec_hidden_dims, dec_hidden_dims), 
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(dec_hidden_dims, num_classes)
-        )
+        self.decoder_layer = ConformerDecoder(enc_hidden_dims, num_classes)
+        self.log_softmax = nn.LogSoftmax(dim=-1)
         
     def forward(self, x: torch.Tensor, input_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x, output_lengths = self.conv_subsampling(x, input_lengths)
@@ -118,5 +112,5 @@ class RoPEConformer(nn.Module):
         for layer in self.encoder_layer:
             x = layer(x)
         x = self.decoder_layer(x)
-        output = self.fully_connected(x)
+        output = self.log_softmax(x)
         return output, output_lengths

@@ -4,26 +4,23 @@ import torch.nn as nn
 
 class ConformerDecoder(nn.Module):
     """
-    Decoder layer contains a single LSTM-layer
+    Simple ASR Decoder for use with CTC-based model
 
     Args:
         input_dims (int): Number of input dimensions
         hidden_dims (int): Number of hidden dimensions
-        num_layers (int): Number of LSTM layers
-        dropout (float): Dropout rate
 
     Inputs:
-        x (torch.Tensor): Input tensor with shape (batch_size, seq_len, input_dims)
-
+        enc (torch.Tensor): Encoded tensor with shape (batch_size, seq_len, input_dims)
+    
     Returns:
-        torch.Tensor: Output tensor with shape (batch_size, seq_len, hidden_dims)
+        torch.Tensor: Decoded tensor with shape (batch_size, seq_len, hidden_dims)
     """
-    def __init__(self, input_dims: int, hidden_dims: int, num_layers: int=1, dropout: float=0.1):
+    def __init__(self, input_dims: int, hidden_dims: int):
         super(ConformerDecoder, self).__init__()
-        self.lstm = nn.LSTM(input_dims, hidden_dims, num_layers, batch_first=True, bidirectional=False)
-        self.dropout = nn.Dropout(dropout)
+        self.conv1d = nn.Conv1d(input_dims, hidden_dims, kernel_size=1, bias=True)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x, _ = self.lstm(x)
-        x = self.dropout(x)
-        return x
+    def forward(self, enc: torch.Tensor) -> torch.Tensor:
+        x = enc.transpose(1, 2)
+        x = self.conv1d(x)
+        return x.transpose(1, 2)
