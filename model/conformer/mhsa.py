@@ -68,7 +68,8 @@ class RoPEMultiHeadSelfAttention(nn.Module):
         """
         L, S = query.size(-2), key.size(-2)
         scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-        attn_bias = torch.zeros(L, S, dtype=query.dtype, device=query.device)
+
+        attn_bias = torch.zeros((query.size(0), query.size(1), L, S), dtype=query.dtype, device=query.device)
         
         if is_causal:
             assert attn_mask is None, "attn_mask should be None when is_causal is True"
@@ -91,20 +92,32 @@ class RoPEMultiHeadSelfAttention(nn.Module):
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         bsz, seqlen, _ = x.shape
 
+        # Create padding mask if not provided (1 for non-pad positions, 0 for pad positions)
+        if mask is None:
+            mask = (x.sum(dim=-1) != 0).unsqueeze(1).unsqueeze(2)  # Shape: (batch_size, 1, 1, seq_len)
+            mask = mask.expand(bsz, self.num_heads, seqlen, seqlen)  # Expand mask to match attention shape
+            mask = mask.float()
+
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
         xq = xq.view(bsz, seqlen, self.num_heads, self.head_dims)
         xk = xk.view(bsz, seqlen, self.num_heads, self.head_dims)
         xv = xv.view(bsz, seqlen, self.num_heads, self.head_dims)
+        
+        # Apply Rotary Embedding
         xq, xk = self.rope(xq), self.rope(xk)
+        
+        # Transpose to prepare for scaled dot-product attention
         xq = xq.transpose(1, 2)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-
+        # Apply scaled dot-product attention with mask
         attn_output = self.scaled_dot_product_attention(xq, xk, xv, mask)
+        
+        # Reshape and project output
         attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seqlen, self.input_dims)
-
+        
         return self.out_proj(attn_output)
 
 
@@ -116,11 +129,6 @@ class RoPEMultiHeadSelfAttentionModule(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x) -> torch.Tensor:
-        # _, seq_len, _ = x.shape
-        # mask = torch.full(
-        #     (seq_len, seq_len), float("-inf")
-        # ).to(x.device)
-        # mask = torch.triu(mask, diagonal=1)
         x = self.layer_norm(x)
         x = self.mhsa(x)
         x = self.dropout(x)
