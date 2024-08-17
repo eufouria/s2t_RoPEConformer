@@ -35,7 +35,7 @@ class RoPEMultiHeadSelfAttention(nn.Module):
         self.wq = nn.Linear(input_dims, input_dims, bias=False)
         self.wk = nn.Linear(input_dims, input_dims, bias=False)
         self.wv = nn.Linear(input_dims, input_dims, bias=False)
-        self.rope = RotaryEmbedding(input_dims)
+        self.rope = RotaryEmbedding(input_dims // num_heads)
         self.out_proj = nn.Linear(input_dims, input_dims, bias=False)
         self.dropout_layer = nn.Dropout(dropout)
 
@@ -92,11 +92,15 @@ class RoPEMultiHeadSelfAttention(nn.Module):
         bsz, seqlen, _ = x.shape
 
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
-        xq, xk = self.rope(xq, xk)
 
-        xq = xq.view(bsz, seqlen, self.num_heads, self.head_dims).transpose(1, 2)
-        xk = xk.view(bsz, seqlen, self.num_heads, self.head_dims).transpose(1, 2)
-        xv = xv.view(bsz, seqlen, self.num_heads, self.head_dims).transpose(1, 2)
+        xq = xq.view(bsz, seqlen, self.num_heads, self.head_dims)
+        xk = xk.view(bsz, seqlen, self.num_heads, self.head_dims)
+        xv = xv.view(bsz, seqlen, self.num_heads, self.head_dims)
+        xq, xk = self.rope(xq), self.rope(xk)
+        xq = xq.transpose(1, 2)
+        xk = xk.transpose(1, 2)
+        xv = xv.transpose(1, 2)
+
 
         attn_output = self.scaled_dot_product_attention(xq, xk, xv, mask)
         attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seqlen, self.input_dims)
