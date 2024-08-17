@@ -23,15 +23,13 @@
         "kernel_size": 31,
         "conv_dropout": 0.1,
         "enc_num_layers": 16,
-        "dec_hidden_dims": 320,
-        "dec_num_layers": 2,
         "num_classes": 29
-},
+    },
     "training": {
         "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}_dev.pth",
         "batch_size": 32,
         "num_workers": 4,
-        "lr": 0.005,
+        "lr": 0.0025,
         "max_lr": 0.01,
         "epochs": 200,
         "anneal_strategy": "cos"
