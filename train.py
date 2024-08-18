@@ -5,8 +5,9 @@ from loguru import logger
 import torch
 import torch.nn as nn
 
-from model.conformer import RoPEConformer
 from data_loader import MyDataLoader
+from lr_scheduler import NoamAnnealing
+from model.conformer import RoPEConformer
 from utils import calculate_wer, int2text, get_n_params, greedy_decode 
 
 # Configure loguru
@@ -68,32 +69,32 @@ logger.info(f"HyperParams: {model_params}")
 model = RoPEConformer(**model_params).to(device)
 logger.info(f"Total params: {get_n_params(model)}")
 
-# Define the checkpoint path for best epoch 
-checkpoint_path = training_config["checkpoint_path"].format(5)
-checkpoint = torch.load(checkpoint_path)
-model.load_state_dict(checkpoint['model_state_dict'])
-logger.info(f"Loaded Model checkpoint {checkpoint_path}")
-############################################################
-
 # Use DataParallel if multiple GPUs are available
 #==========================================***===========================================
-# if torch.cuda.device_count() > 1:
-#     model = nn.DataParallel(model)
-#     model.to('cuda')
+if torch.cuda.device_count() > 1:
+    model = nn.DataParallel(model)
+    model.to('cuda')
 
 # Optimizer
 #==========================================***===========================================
-optimizer = torch.optim.AdamW(model.parameters(), lr=training_config['lr'], amsgrad=True)
+optimizer = torch.optim.AdamW(
+    model.parameters(), 
+    lr=training_config['lr'],
+    betas=training_config['betas'],
+    weight_decay=training_config['weight_decay']
+)
+
 
 # Scheduler
 #==========================================***===========================================
-scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    optimizer, 
-    max_lr=training_config['max_lr'],                # Maximum learning rate
-    steps_per_epoch=len(train_loader),                      # Number of steps (batches) per epoch
-    epochs=training_config['epochs'],                       # Total number of epochs
-    anneal_strategy=training_config['anneal_strategy'],     # Learning rate annealing strategy ('cos' or 'linear')
+d_model = model_params['enc_hidden_dims']
+scheduler = NoamAnnealing(
+    optimizer,
+    d_model=d_model,
+    warmup_steps=training_config['warmup_steps'],
+    min_lr=training_config['min_lr'],
 )
+
 
 # Loss function
 #==========================================***===========================================
@@ -158,7 +159,6 @@ def validate(model, dataloader, criterion, device):
             if idx <= 3:
                 logger.info(f"Reference: {labels_text}")
                 logger.info(f"Hypothesis: {decoded_preds_text}")
-                logger.info(f"Output: {torch.argmax(output, dim=2).squeeze(0).tolist()}")
             # Calculate WER
             wer = calculate_wer(labels_text, decoded_preds_text)
             wer_list.append(wer)
@@ -212,14 +212,13 @@ for epoch in range(n_epochs):
         early_stop = True
 
     # Save checkpoint every 5 epochs
-    if epoch % 5 == 0:
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'loss': loss,
-            'batch_loss': batch_loss,
-            'val_loss': val_loss
-        }
-        torch.save(checkpoint, training_config["checkpoint_path"].format(epoch))
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'loss': loss,
+        'batch_loss': batch_loss,
+        'val_loss': val_loss
+    }
+    torch.save(checkpoint, training_config["checkpoint_path"].format(epoch))

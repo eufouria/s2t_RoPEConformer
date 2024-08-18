@@ -9,13 +9,12 @@
         "sample_rate": 16000,
         "win_length": 320,
         "hop_length": 160,
-        "n_fft": 512,
         "n_mels": 80
     },
     "acoustic_model": {
         "input_dims": 80,
-        "hidden_dims": 256,
-        "enc_hidden_dims": 176,
+        "hidden_dims": 128,
+        "enc_hidden_dims": 128,
         "dropout": 0.1,
         "ff_expansion_factor": 4,
         "ff_dropout": 0.2,
@@ -23,17 +22,19 @@
         "mhsa_dropout": 0.1,
         "kernel_size": 31,
         "conv_dropout": 0.1,
-        "enc_num_layers": 12,
+        "enc_num_layers": 16,
         "num_classes": 29
     },
     "training": {
         "checkpoint_path": "checkpoints/RoPEconformer_checkpoint{}_dev.pth",
         "batch_size": 16,
         "num_workers": 4,
-        "lr": 2,
-        "max_lr": 5,
-        "epochs": 100,
-        "anneal_strategy": "cos"
+        "lr":2,
+        "betas": [0.9, 0.98],
+        "weight_decay": 1e-3,
+        "warmup_steps": 10000,
+        "min_lr": 1e-6,
+        "epochs": 100
     },
-    "seed": 137
+    "seed": 13
 }
