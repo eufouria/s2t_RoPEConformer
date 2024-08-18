@@ -42,6 +42,7 @@ class MyDataLoader:
             mel_transform = transforms.MelSpectrogram(
                 sample_rate=self.audio_config['sample_rate'],
                 n_mels=self.audio_config['n_mels'],
+                n_fft=self.audio_config['n_fft'],
                 win_length=self.audio_config['win_length'],
                 hop_length=self.audio_config['hop_length']
             )

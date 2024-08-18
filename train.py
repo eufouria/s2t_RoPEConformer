@@ -7,7 +7,7 @@ import torch.nn as nn
 
 from model.conformer import RoPEConformer
 from data_loader import MyDataLoader
-from utils import get_n_params
+from utils import calculate_wer, int2text, get_n_params, greedy_decode 
 
 # Configure loguru
 logger.add("training_logs_{time}.log", format="{time} {level} {message}", level="INFO")
@@ -55,7 +55,7 @@ valid_dataset = data_loader.load_librispeech_datasets(dataset_config['librispeec
 # Get Validation DataLoader
 #==========================================***===========================================
 valid_loader = data_loader.get_dataloader(valid_dataset, 
-                                          batch_size=training_config['batch_size'], 
+                                          batch_size=1, 
                                           shuffle=False, 
                                           num_workers=training_config['num_workers'])
 logger.info(f"Validation DataLoader Size: {len(valid_loader)}")
@@ -67,6 +67,13 @@ model_params = config.get('acoustic_model')
 logger.info(f"HyperParams: {model_params}")
 model = RoPEConformer(**model_params).to(device)
 logger.info(f"Total params: {get_n_params(model)}")
+
+# Define the checkpoint path for best epoch 
+checkpoint_path = training_config["checkpoint_path"].format(5)
+checkpoint = torch.load(checkpoint_path)
+model.load_state_dict(checkpoint['model_state_dict'])
+logger.info(f"Loaded Model checkpoint {checkpoint_path}")
+############################################################
 
 # Use DataParallel if multiple GPUs are available
 #==========================================***===========================================
@@ -92,23 +99,6 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR(
 #==========================================***===========================================
 criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(device) # blank=0 is the index for unknown characters
 
-def validate(model, dataloader, criterion, device):
-    model.eval()
-    total_loss = 0
-    with torch.no_grad():
-        for spectrograms, labels, input_lengths, label_lengths in dataloader:
-            spectrograms, labels, input_lengths, label_lengths = (
-                spectrograms.to(device),
-                labels.to(device),
-                input_lengths.to(device),
-                label_lengths.to(device)
-            )
-            output, output_lengths = model(spectrograms, input_lengths)
-            output = nn.functional.log_softmax(output, dim=2)
-            loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
-            total_loss += loss.item()
-    return total_loss / len(dataloader)
-
 
 # training loop   
 #==========================================***===========================================
@@ -131,7 +121,6 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
         )
 
         output, output_lengths = model(spectrograms, input_lengths)
-        output = nn.functional.log_softmax(output, dim=2)
         loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
 
         loss.backward()
@@ -141,10 +130,48 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
         batch_loss.append(loss.item())
     return total_loss / len(dataloader), batch_loss
 
+
+# Validate model
+#==========================================***===========================================
+def validate(model, dataloader, criterion, device):
+    model.eval()
+    total_loss = 0
+    wer_list = []
+    with torch.no_grad():
+        for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
+            spectrograms, labels, input_lengths, label_lengths = (
+                spectrograms.to(device),
+                labels.to(device),
+                input_lengths.to(device),
+                label_lengths.to(device)
+            )
+            
+            # Forward pass
+            output, output_lengths = model(spectrograms, input_lengths)
+            loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
+            total_loss += loss.item()
+            
+            # Greedy decoding
+            decoded_preds = greedy_decode(torch.argmax(output, dim=2).squeeze(0).tolist())
+            decoded_preds_text = int2text(decoded_preds)
+            labels_text = int2text(labels.cpu().numpy().flatten())
+            if idx <= 3:
+                logger.info(f"Reference: {labels_text}")
+                logger.info(f"Hypothesis: {decoded_preds_text}")
+                logger.info(f"Output: {torch.argmax(output, dim=2).squeeze(0).tolist()}")
+            # Calculate WER
+            wer = calculate_wer(labels_text, decoded_preds_text)
+            wer_list.append(wer)
+    
+    avg_loss = total_loss / len(dataloader)
+    avg_wer = np.mean(wer_list)
+    
+    return avg_loss, avg_wer
+
 # Train model
 #==========================================***===========================================
 # Early Stopping Parameters
-patience = 5
+patience = 10
 best_val_loss = float('inf')
 epochs_no_improve = 0
 early_stop = False
@@ -164,8 +191,11 @@ for epoch in range(n_epochs):
     batch_losses.append(batch_loss)
     
     # Validate after each epoch
-    val_loss = validate(model, valid_loader, criterion, device)
-    logger.info(f'  Epoch {epoch}, avg. Train Loss: {round(loss, 8)}, avg. Val Loss: {round(val_loss, 8)}, Time Elapsed: {datetime.datetime.now()-start}')
+    val_loss, wer = validate(model, valid_loader, criterion, device)
+    logger.info(f'  Epoch {epoch}, avg. Train Loss: {round(loss, 8)}, \
+    avg. Val Loss: {round(val_loss, 8)}, \
+    WER: {round(wer, 8)}, \
+    Time Elapsed: {datetime.datetime.now()-start}')
     logger.info(f'==========================================***===========================================')
 
     # Check if validation loss improved
