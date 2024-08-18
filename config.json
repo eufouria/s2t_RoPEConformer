@@ -3,7 +3,7 @@
         "librispeech_path": "data/",
         "train_subsets": ["train-clean-100"],
         "test_subsets": ["test-clean", "test-other"],
-        "valid_subsets": ["dev-clean", "dev-other"]
+        "valid_subsets": ["dev-clean"]
     },
     "audio": {
         "sample_rate": 16000,
@@ -33,9 +33,9 @@
         "lr":2,
         "betas": [0.9, 0.98],
         "weight_decay": 1e-3,
-        "warmup_steps": 10000,
+        "warmup_steps": 5000,
         "min_lr": 1e-6,
         "epochs": 100
     },
-    "seed": 13
+    "seed": 1999
 }

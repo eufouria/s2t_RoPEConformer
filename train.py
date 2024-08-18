@@ -57,7 +57,7 @@ valid_dataset = data_loader.load_librispeech_datasets(dataset_config['librispeec
 # Get Validation DataLoader
 #==========================================***===========================================
 valid_loader = data_loader.get_dataloader(valid_dataset, 
-                                          batch_size=1, 
+                                          batch_size=training_config['batch_size'], 
                                           shuffle=False, 
                                           num_workers=training_config['num_workers'])
 logger.info(f"Validation DataLoader Size: {len(valid_loader)}")
@@ -138,6 +138,7 @@ def validate(model, dataloader, criterion, device):
     model.eval()
     total_loss = 0
     ref_list, hyp_list = [], []
+    
     with torch.no_grad():
         for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
             spectrograms, labels, input_lengths, label_lengths = (
@@ -153,13 +154,18 @@ def validate(model, dataloader, criterion, device):
             total_loss += loss.item()
             
             # Greedy decoding
-            decoded_preds = greedy_decode(torch.argmax(output, dim=2).squeeze(0).tolist())
-            preds_text = int2text(decoded_preds)
-            labels_text = int2text(labels.cpu().numpy().flatten())
-            ref_list.append(labels_text)
-            hyp_list.append(preds_text)
+            for i in range(output.size(0)):  # Loop over batch
+                decoded_preds = greedy_decode(torch.argmax(output[i, :, :], dim=-1).tolist())
+                preds_text = int2text(decoded_preds)
+                labels_text = int2text(labels[i].cpu().numpy().flatten())
+                if idx == 0 and i < 3:
+                    logger.info(f"Reference: {labels_text}")
+                    logger.info(f"Hypothesis: {preds_text}")
+                
+                ref_list.append(labels_text)
+                hyp_list.append(preds_text)
 
-    avg_wer, words, _, _, _ =  cal_wer_detail(hyp_list, ref_list)
+    avg_wer, words, _, _, _ = cal_wer_detail(hyp_list, ref_list)
     avg_loss = total_loss / len(dataloader)
     return avg_loss, avg_wer
 

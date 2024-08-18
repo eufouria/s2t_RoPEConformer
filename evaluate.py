@@ -90,4 +90,4 @@ valid_loss, valid_wer = evaluate(model, valid_loader, criterion, device)
 test_loss, test_wer = evaluate(model, test_loader, criterion, device)
 
 print(f'Validation Loss: {valid_loss:.8f}, Validation WER: {valid_wer:.8f}')
-print(f'Test Loss: {test_loss:.8f}, Test WER: {test_wer:.8f}')ßß
+print(f'Test Loss: {test_loss:.8f}, Test WER: {test_wer:.8f}')
