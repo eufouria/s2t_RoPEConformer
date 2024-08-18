@@ -1,7 +1,8 @@
+import argparse
 import datetime
 import json
-import argparse
 from loguru import logger
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -84,7 +85,6 @@ optimizer = torch.optim.AdamW(
     weight_decay=training_config['weight_decay']
 )
 
-
 # Scheduler
 #==========================================***===========================================
 d_model = model_params['enc_hidden_dims']
@@ -98,7 +98,7 @@ scheduler = NoamAnnealing(
 
 # Loss function
 #==========================================***===========================================
-criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(device) # blank=0 is the index for unknown characters
+criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True).to(device) # blank=0 is the index for blank characters
 
 
 # training loop   
@@ -111,7 +111,10 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
     for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
         if idx % 100 == 0 and idx > 0:
             current_lr = scheduler.get_last_lr()[0]  # Assuming single learning rate
-            logger.info(f'  ||  Batch {idx}, Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, Avg. Loss: {total_loss/(idx+1)}, LR: {current_lr}')
+            logger.info(f'  ||  Batch {idx}, \
+            Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, \
+            Avg. Loss: {round(total_loss/(idx+1), 6)}, \
+            LR: {round(current_lr, 8)}')
         
         optimizer.zero_grad()
         spectrograms, labels, input_lengths, label_lengths = (
@@ -165,7 +168,6 @@ def validate(model, dataloader, criterion, device):
     
     avg_loss = total_loss / len(dataloader)
     avg_wer = np.mean(wer_list)
-    
     return avg_loss, avg_wer
 
 # Train model
@@ -192,9 +194,9 @@ for epoch in range(n_epochs):
     
     # Validate after each epoch
     val_loss, wer = validate(model, valid_loader, criterion, device)
-    logger.info(f'  Epoch {epoch}, avg. Train Loss: {round(loss, 8)}, \
-    avg. Val Loss: {round(val_loss, 8)}, \
-    WER: {round(wer, 8)}, \
+    logger.info(f'  Epoch {epoch}, avg. Train Loss: {round(loss, 6)}, \
+    avg. Val Loss: {round(val_loss, 6)}, \
+    WER: {round(wer, 6)}, \
     Time Elapsed: {datetime.datetime.now()-start}')
     logger.info(f'==========================================***===========================================')
 
