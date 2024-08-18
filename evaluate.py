@@ -38,7 +38,7 @@ valid_dataset = data_loader.load_librispeech_datasets(dataset_config['librispeec
 test_loader = data_loader.get_dataloader(test_dataset, 
                                           batch_size=1, 
                                           shuffle=False)
-valid_loader = data_loader.get_dataloader(valid_dataset, 
+valid_loader = data_loader.get_dataloader(valid_dataset,
                                           batch_size=1, 
                                           shuffle=False)
 
@@ -52,34 +52,37 @@ model = RoPEConformer(**model_params).to(device)
 checkpoint = torch.load(args.checkpoint, map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 
-criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(device)
+criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True).to(device)
 
-# Evaluation function
-def evaluate(model, dataloader, criterion, device):
+# Validate model
+#==========================================***===========================================
+def validate(model, dataloader, criterion, device):
     model.eval()
     total_loss = 0
-    wer_list = []
-    
+    ref_list, hyp_list = [], []
     with torch.no_grad():
-        for spectrograms, labels, input_lengths, label_lengths in dataloader:
-            spectrograms, labels, input_lengths, label_lengths = (spectrograms.to(device),
-                                labels.to(device),
-                                input_lengths.to(device),
-                                label_lengths.to(device))
+        for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
+            spectrograms, labels, input_lengths, label_lengths = (
+                spectrograms.to(device),
+                labels.to(device),
+                input_lengths.to(device),
+                label_lengths.to(device)
+            )
+            
+            # Forward pass
             output, output_lengths = model(spectrograms, input_lengths)
             loss = criterion(output.transpose(0, 1), labels, output_lengths, label_lengths)
             total_loss += loss.item()
+            
             # Greedy decoding
             decoded_preds = greedy_decode(torch.argmax(output, dim=2).squeeze(0).tolist())
-            decoded_preds_text = int2text(decoded_preds)
+            preds_text = int2text(decoded_preds)
             labels_text = int2text(labels.cpu().numpy().flatten())
-            # Calculate WER
-            wer = calculate_wer(labels_text, decoded_preds_text)
-            wer_list.append(wer)
-    
+            ref_list.append(labels_text)
+            hyp_list.append(preds_text)
+
+    avg_wer, words, _, _, _ =  cal_wer_detail(hyp_list, ref_list)
     avg_loss = total_loss / len(dataloader)
-    avg_wer = np.mean(wer_list)
-    
     return avg_loss, avg_wer
 
 # Evaluate on validation and test sets
@@ -87,4 +90,4 @@ valid_loss, valid_wer = evaluate(model, valid_loader, criterion, device)
 test_loss, test_wer = evaluate(model, test_loader, criterion, device)
 
 print(f'Validation Loss: {valid_loss:.8f}, Validation WER: {valid_wer:.8f}')
-print(f'Test Loss: {test_loss:.8f}, Test WER: {test_wer:.8f}')
+print(f'Test Loss: {test_loss:.8f}, Test WER: {test_wer:.8f}')ßß
