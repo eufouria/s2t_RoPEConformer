@@ -1,7 +1,10 @@
+import jiwer
 import functools
 import operator
 import numpy as np
 from torch import nn
+from typing import List, Tuple
+
 
 def get_n_params(model: nn.Module) -> int:
     """
@@ -20,6 +23,7 @@ def int2text(indices: list) -> str:
                    11: "k", 12: "l", 13: "m", 14: "n", 15: "o", 16: "p", 17: "q", 18: "r", 19: "s",
                    20: "t", 21: "u", 22: "v", 23: "w", 24: "x", 25: "y", 26: "z", 27: " "}
     return ''.join(idx_to_char.get(idx, "") for idx in indices)
+
 
 def greedy_decode(best_path: list, blank_idx=0) -> list:
     """
@@ -43,32 +47,77 @@ def greedy_decode(best_path: list, blank_idx=0) -> list:
         previous_char_idx = char_idx
     return decoded_sequence
 
-def calculate_wer(reference: str, hypothesis: str) -> float:
+
+def cal_wer_detail(
+    hypotheses: List[str], references: List[str], use_cer=False
+) -> Tuple[float, int, float, float, float]:
     """
-    Calculate the Word Error Rate (WER) between a reference and a hypothesis.
-    
+    Reference: 
+    https://github.com/NVIDIA/NeMo/blob/96b5bc9c5e228364f534ecebc5bfc602934864e1/nemo/collections/asr/metrics/wer.py#L70
+
+    Computes Average Word Error Rate with details (insertion rate, deletion rate, substitution rate)
+    between two texts represented as corresponding lists of string.
+
+    Hypotheses and references must have same length.
+
     Args:
-        reference (str): Reference text
-        hypothesis (str): Hypothesized text
+        hypotheses (list): list of hypotheses
+        references(list) : list of references
+        use_cer (bool): set True to enable cer
 
     Returns:
-        float: Word Error Rate (WER)
+        wer (float): average word error rate
+        words (int):  Total number of words/charactors of given reference texts
+        ins_rate (float): average insertion error rate
+        del_rate (float): average deletion error rate
+        sub_rate (float): average substitution error rate
     """
-    r = reference.split()
-    h = hypothesis.split()
-    d = np.zeros((len(r)+1)*(len(h)+1), dtype=np.uint8)
-    d = d.reshape((len(r)+1, len(h)+1))
-    for i in range(len(r)+1):
-        for j in range(len(h)+1):
-            if i == 0:
-                d[0][j] = j
-            elif j == 0:
-                d[i][0] = i
-            elif r[i-1] == h[j-1]:
-                d[i][j] = d[i-1][j-1]
+    scores = 0
+    words = 0
+    ops_count = {'substitutions': 0, 'insertions': 0, 'deletions': 0}
+
+    if len(hypotheses) != len(references):
+        raise ValueError(
+            "In word error rate calculation, hypotheses and reference"
+            " lists must have the same number of elements. But I got:"
+            "{0} and {1} correspondingly".format(len(hypotheses), len(references))
+        )
+
+    for h, r in zip(hypotheses, references):
+        if use_cer:
+            h_list = list(h)
+            r_list = list(r)
+        else:
+            h_list = h.split()
+            r_list = r.split()
+
+        # To get rid of the issue that jiwer does not allow empty string
+        if len(r_list) == 0:
+            if len(h_list) != 0:
+                errors = len(h_list)
+                ops_count['insertions'] += errors
             else:
-                substitute = d[i-1][j-1] + 1
-                insert = d[i][j-1] + 1
-                delete = d[i-1][j] + 1
-                d[i][j] = min(substitute, insert, delete)
-    return d[len(r)][len(h)] / float(len(r))
+                errors = 0
+        else:
+            if use_cer:
+                measures = jiwer.cer(r, h, return_dict=True)
+            else:
+                measures = jiwer.compute_measures(r, h)
+
+            errors = measures['insertions'] + measures['deletions'] + measures['substitutions']
+            ops_count['insertions'] += measures['insertions']
+            ops_count['deletions'] += measures['deletions']
+            ops_count['substitutions'] += measures['substitutions']
+
+        scores += errors
+        words += len(r_list)
+
+    if words != 0:
+        wer = 1.0 * scores / words
+        ins_rate = 1.0 * ops_count['insertions'] / words
+        del_rate = 1.0 * ops_count['deletions'] / words
+        sub_rate = 1.0 * ops_count['substitutions'] / words
+    else:
+        wer, ins_rate, del_rate, sub_rate = float('inf'), float('inf'), float('inf'), float('inf')
+
+    return wer, words, ins_rate, del_rate, sub_rate

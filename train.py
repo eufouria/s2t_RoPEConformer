@@ -9,7 +9,7 @@ import torch.nn as nn
 from data_loader import MyDataLoader
 from lr_scheduler import NoamAnnealing
 from model.conformer import RoPEConformer
-from utils import calculate_wer, int2text, get_n_params, greedy_decode 
+from utils import cal_wer_detail, int2text, get_n_params, greedy_decode 
 
 # Configure loguru
 logger.add("training_logs_{time}.log", format="{time} {level} {message}", level="INFO")
@@ -111,10 +111,7 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
     for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
         if idx % 100 == 0 and idx > 0:
             current_lr = scheduler.get_last_lr()[0]  # Assuming single learning rate
-            logger.info(f'  ||  Batch {idx}, \
-            Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, \
-            Avg. Loss: {round(total_loss/(idx+1), 6)}, \
-            LR: {round(current_lr, 8)}')
+            logger.info(f'  ||  Batch {idx}, Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, Avg. Loss: {round(total_loss/(idx+1), 6)}, LR: {round(current_lr, 8)}')
         
         optimizer.zero_grad()
         spectrograms, labels, input_lengths, label_lengths = (
@@ -140,7 +137,7 @@ def train(model, dataloader, criterion, optimizer, device, scheduler):
 def validate(model, dataloader, criterion, device):
     model.eval()
     total_loss = 0
-    wer_list = []
+    ref_list, hyp_list = [], []
     with torch.no_grad():
         for idx, (spectrograms, labels, input_lengths, label_lengths) in enumerate(dataloader):
             spectrograms, labels, input_lengths, label_lengths = (
@@ -157,17 +154,13 @@ def validate(model, dataloader, criterion, device):
             
             # Greedy decoding
             decoded_preds = greedy_decode(torch.argmax(output, dim=2).squeeze(0).tolist())
-            decoded_preds_text = int2text(decoded_preds)
+            preds_text = int2text(decoded_preds)
             labels_text = int2text(labels.cpu().numpy().flatten())
-            if idx <= 3:
-                logger.info(f"Reference: {labels_text}")
-                logger.info(f"Hypothesis: {decoded_preds_text}")
-            # Calculate WER
-            wer = calculate_wer(labels_text, decoded_preds_text)
-            wer_list.append(wer)
-    
+            ref_list.append(labels_text)
+            hyp_list.append(preds_text)
+
+    avg_wer, words, _, _, _ =  cal_wer_detail(hyp_list, ref_list)
     avg_loss = total_loss / len(dataloader)
-    avg_wer = np.mean(wer_list)
     return avg_loss, avg_wer
 
 # Train model
